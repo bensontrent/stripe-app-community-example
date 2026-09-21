@@ -2,10 +2,14 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.productivity.community-example",
   "name": "Community Example",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icon": "./app_icon.png",
   "ui_extension": {
     "views": [
+      {
+        "viewport": "stripe.dashboard.fullpage",
+        "component": "FullPage"
+      },
       {
         "viewport": "stripe.dashboard.drawer.default",
         "component": "App"

@@ -10,6 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "moduleResolution": "bundler",
+    "types": ["jest", "node"],
     "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,

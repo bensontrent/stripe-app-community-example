@@ -19,6 +19,7 @@
 
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { fetchStripeSignature } from '@stripe/ui-extension-sdk/utils';
+import type { SettingsPatchBody, SettingsResponse } from '../types/settings';
 
 // Point this at your deployed backend. `stripe apps start` allows
 // http://localhost for development; published apps must use https.
@@ -265,6 +266,41 @@ export function loginPageUrl(state: string): string {
 /** Browser URL that ends the user's browser session. */
 export function logoutPageUrl(): string {
   return `${BACKEND_BASE}/stripe-logout`;
+}
+
+// ---------------------------------------------------------------------------
+//  App settings (see src/hooks/useSettings.tsx and src/types/settings.ts;
+//  the backend half is src/lib/settings.ts + /api/stripe-app/settings)
+// ---------------------------------------------------------------------------
+
+/**
+ * Both settings layers for the logged-in user, resolved for the current
+ * mode and merged over the defaults. 401 (not logged in) surfaces as a
+ * BackendConnectionError with status 401 — the hook shows the Login
+ * component for that.
+ */
+export function getSettings(
+  context: ExtensionContextValue,
+): Promise<SettingsResponse> {
+  return signedFetch<SettingsResponse>('GET', '/api/stripe-app/settings', context);
+}
+
+/**
+ * Merge a few keys into one scope's settings. The backend rejects keys that
+ * don't belong to that scope, so `{ scope: 'user', settings: { companyName } }`
+ * is a 400, not a silent write to the wrong table. Answers with the same
+ * payload as getSettings so the caller can replace its state in one step.
+ */
+export function patchSettings(
+  context: ExtensionContextValue,
+  body: SettingsPatchBody,
+): Promise<SettingsResponse> {
+  return signedFetch<SettingsResponse>(
+    'PATCH',
+    '/api/stripe-app/settings',
+    context,
+    body,
+  );
 }
 
 // Bearer-token auth from a Stripe App: store a user-provided key with
