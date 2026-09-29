@@ -57,7 +57,12 @@ import {
   type PaywallLimits,
   type PaywallStatus,
 } from "../types/paywall";
-import Paywall, { formatDate, PaywallGate, PlansLink } from "./Paywall";
+import Paywall, {
+  formatDate,
+  PaywallGate,
+  PlansLink,
+  RecheckResult,
+} from "./Paywall";
 
 /** What one use of the demo's paid feature is called. */
 const UNIT = "widget";
@@ -87,6 +92,28 @@ const REASON_LABELS: Record<AccessReason, string> = {
   trial_limit_reached: "Free trial ended (allowance used)",
   payment_past_due: "Subscription past due",
 };
+
+/**
+ * Whether the backend counted a use, in words. Only a running trial has an
+ * allowance to count against: test mode and subscribers pass through the
+ * gate uncounted, so "Used so far" stays where it was.
+ */
+export function usageCountedText(status: PaywallStatus, unit: string): string {
+  if (status.reason === "trialing") {
+    const { usageCount } = status.trial;
+    const limit = status.limits.trialCountLimit;
+    return limit === null
+      ? `Counted: ${usageCount} ${unit}s used in the trial so far.`
+      : `Counted: ${usageCount} of ${limit} ${unit}s used in the trial.`;
+  }
+  if (status.reason === "test_mode") {
+    return "Not counted: test mode is free, so nothing is taken from the trial allowance.";
+  }
+  if (status.reason === "subscribed") {
+    return "Not counted: a subscription has no trial allowance to use up.";
+  }
+  return "Not counted: the backend refused this use.";
+}
 
 const limitText = (limit: number | null, noun: string) =>
   limit === null ? "no limit" : `${limit} ${noun}${limit === 1 ? "" : "s"}`;
@@ -122,7 +149,7 @@ const WhenLoaded = ({
 
 /** What the backend decided for this account, field by field. */
 export function PaywallStatusDemo() {
-  const { refresh, pending } = usePaywall();
+  const { refresh, pending, actionError, lastRecheck } = usePaywall();
 
   return (
     <WhenLoaded>
@@ -159,7 +186,11 @@ export function PaywallStatusDemo() {
             />
             <PropertyListItem
               label="Used so far"
-              value={`${status.trial.usageCount} ${UNIT}s`}
+              value={
+                status.reason === "test_mode"
+                  ? `${status.trial.usageCount} ${UNIT}s (not counted in test mode)`
+                  : `${status.trial.usageCount} ${UNIT}s`
+              }
             />
             <PropertyListItem
               label="Plan"
@@ -177,6 +208,14 @@ export function PaywallStatusDemo() {
               {pending === "refresh" && <Spinner size="small" />}
             </Button>
           </Box>
+          <RecheckResult recheck={lastRecheck} />
+          {pending === null && actionError && (
+            <Banner
+              type="critical"
+              title="Request failed"
+              description={actionError.message}
+            />
+          )}
           <Box>
             <PlansLink>See plans and pricing (public page, no login)</PlansLink>
           </Box>
@@ -199,6 +238,8 @@ export function PaywallStatusDemo() {
 function CreateWidget() {
   const { recordUse, pending, actionError } = usePaywall();
   const [widgets, setWidgets] = useState<string[]>([]);
+  // The status the backend sent with the most recent widget.
+  const [lastUse, setLastUse] = useState<PaywallStatus | null>(null);
 
   const create = useCallback(async () => {
     // The backend checks access, counts the use, and only then does the
@@ -207,6 +248,7 @@ function CreateWidget() {
     const use = await recordUse();
     if (use?.allowed) {
       setWidgets((previous) => [use.result.widgetId, ...previous]);
+      setLastUse(use.status);
     }
   }, [recordUse]);
 
@@ -218,6 +260,19 @@ function CreateWidget() {
           {pending === "use-feature" && <Spinner size="small" />}
         </Button>
       </Box>
+
+      {lastUse && (
+        <Box css={{ stack: "y", gap: "xsmall" }}>
+          <Box css={{ stack: "x", gap: "small", alignY: "center", wrap: "wrap" }}>
+            <Inline css={{ fontWeight: "semibold" }}>Server response</Inline>
+            <Badge type="positive">200 allowed</Badge>
+            <Inline css={{ font: "caption", color: "secondary" }}>
+              reason: {lastUse.reason}
+            </Inline>
+          </Box>
+          <Box css={{ font: "caption" }}>{usageCountedText(lastUse, UNIT)}</Box>
+        </Box>
+      )}
 
       {widgets.length > 0 && (
         <Box css={{ stack: "y", gap: "xsmall" }}>
@@ -347,7 +402,7 @@ const noop = async () => undefined;
 
 /** Every paywall state, rendered from made-up data with the real components. */
 export function PaywallPreviewDemo({ context }: PaywallDemoProps) {
-  const { status } = usePaywall();
+  const { status, refresh, pending, actionError, lastRecheck } = usePaywall();
   const [scenarioId, setScenarioId] = useState(PREVIEW_SCENARIOS[1].id);
 
   const preview = useMemo(() => {
@@ -367,8 +422,10 @@ export function PaywallPreviewDemo({ context }: PaywallDemoProps) {
   return (
     <Box css={{ stack: "y", gap: "medium" }}>
       <Box css={{ color: "secondary", font: "caption" }}>
-        Pick a situation to see what the user gets. Nothing here talks to the
-        backend or changes your trial; the buttons are disabled.
+        Pick a situation to see what the user gets. Nothing here changes your
+        trial: the trial button is disabled. The login and &quot;Recheck my
+        plan&quot; in the upgrade steps are the real ones; the recheck shows
+        what the backend answers for your own account.
       </Box>
 
       <Select
@@ -403,9 +460,12 @@ export function PaywallPreviewDemo({ context }: PaywallDemoProps) {
         <PaywallGate
           context={context}
           status={preview}
-          actions={{ startTrial: noop, refresh: noop }}
-          pending={null}
-          actionError={null}
+          // The trial button is disabled by `preview`; the recheck is the
+          // real request, so its spinner, answer and error are real too.
+          actions={{ startTrial: noop, refresh }}
+          pending={pending === "refresh" ? pending : null}
+          actionError={pending === null ? actionError : null}
+          lastRecheck={lastRecheck}
           unit={UNIT}
           preview
         >

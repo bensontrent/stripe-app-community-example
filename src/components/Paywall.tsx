@@ -61,6 +61,7 @@ import {
   type PaywallAction,
   type PaywallActions,
   type PaywallError,
+  type PaywallRecheck,
 } from "../hooks/usePaywall";
 import type { PaywallLimits, PaywallStatus } from "../types/paywall";
 import Login from "./Login";
@@ -146,6 +147,68 @@ const ActionError = ({ error }: { error: PaywallError | null }) =>
     </Box>
   ) : null;
 
+const formatTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+/** The recheck answer in one sentence. */
+export function recheckSummaryText(status: PaywallStatus): string {
+  const { subscription } = status;
+  if (status.reason === "test_mode") {
+    return "Test mode is free, so there is no plan to look for.";
+  }
+  if (!subscription) {
+    return "No plan found for this Stripe account. If you have just subscribed, make sure you are logged in here with the account you paid with.";
+  }
+  const plan = subscription.planName ?? "Custom plan";
+  const state = subscription.status.replace("_", " ");
+  return status.access === "granted"
+    ? `Found the ${plan} plan (${state}).`
+    : `Found the ${plan} plan, but it is ${state}.`;
+}
+
+/**
+ * What the backend answered to "Recheck my plan": POST
+ * /api/stripe-app/paywall/refresh. Shown whether or not the answer changed
+ * anything, so the button never appears to do nothing.
+ */
+export const RecheckResult = ({
+  recheck,
+  preview,
+}: {
+  recheck: PaywallRecheck | null | undefined;
+  preview?: boolean;
+}) => {
+  if (!recheck) return null;
+  const { status, checkedAt } = recheck;
+  return (
+    <Box css={{ stack: "y", gap: "xsmall" }}>
+      <Box css={{ stack: "x", gap: "small", alignY: "center", wrap: "wrap" }}>
+        <Inline css={{ fontWeight: "semibold" }}>Server response</Inline>
+        <Badge type={status.access === "granted" ? "positive" : "negative"}>
+          access {status.access}
+        </Badge>
+        <Inline css={{ font: "caption", color: "secondary" }}>
+          checked at {formatTime(checkedAt)}
+        </Inline>
+      </Box>
+      <Box css={{ font: "caption" }}>{recheckSummaryText(status)}</Box>
+      <Box css={{ font: "caption", color: "secondary" }}>
+        reason: {status.reason} · view: {status.view} · mode: {status.mode}
+      </Box>
+      {preview && (
+        <Box css={{ font: "caption", color: "secondary" }}>
+          This is the answer for your real Stripe account. The situation
+          previewed above is made up and stays as it is.
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 /**
  * Link to the backend's public price list (/plans). It needs no login, so
  * it is offered in every view: people want to know the price before they
@@ -172,9 +235,14 @@ type ViewProps = {
   actionError: PaywallError | null;
   /** What one use of the feature is called, singular: "widget", "shipment". */
   unit: string;
+  /** The backend's answer to the last "Recheck my plan", shown under the button. */
+  lastRecheck?: PaywallRecheck | null;
   /**
-   * Render without side effects: no login handshake, buttons disabled. For
-   * showing what a state looks like (the demo's preview section).
+   * The status on screen is made up (the demo's preview section). Disables
+   * "Start free trial", the one button that would change the account's
+   * trial. Everything else stays live: the Login component, the links, and
+   * "Recheck my plan", whose answer is then about the real account and is
+   * labelled as such.
    */
   preview?: boolean;
 };
@@ -237,19 +305,17 @@ const UpgradeSteps = ({
   actions,
   pending,
   actionError,
+  lastRecheck,
   preview,
   planStep,
 }: ViewProps & { planStep: string }) => (
   <Box css={panel}>
     <Step number={1}>
       <Box>Log in or create an account. Your plan is tied to it.</Box>
-      {preview ? (
-        <Box css={{ font: "caption", color: "secondary" }}>
-          (The login button appears here.)
-        </Box>
-      ) : (
-        <Login context={context} />
-      )}
+      {/* The real component in previews too: logging in changes nothing
+          about the trial, and a placeholder would hide the one step people
+          most want to see working. */}
+      <Login context={context} />
     </Step>
 
     <Step number={2}>
@@ -266,15 +332,17 @@ const UpgradeSteps = ({
     <Step number={3}>
       <Box>Come back here and recheck. The app unlocks straight away.</Box>
       <Box>
+        {/* Live in previews too: a recheck reads, it doesn't spend anything. */}
         <Button
           type="primary"
-          disabled={preview || pending !== null}
+          disabled={pending !== null}
           onPress={actions.refresh}
         >
           Recheck my plan
           {pending === "refresh" && <Spinner size="small" />}
         </Button>
       </Box>
+      <RecheckResult recheck={lastRecheck} preview={preview} />
     </Step>
 
     <Box css={{ stack: "x", gap: "small", alignY: "center" }}>
@@ -370,8 +438,16 @@ export type PaywallProps = {
  * inside <PaywallProvider>.
  */
 export default function Paywall({ context, unit = "use", children }: PaywallProps) {
-  const { state, error, status, pending, actionError, startTrial, refresh } =
-    usePaywall();
+  const {
+    state,
+    error,
+    status,
+    pending,
+    actionError,
+    lastRecheck,
+    startTrial,
+    refresh,
+  } = usePaywall();
 
   if (state === "loading") return <Spinner size="small" />;
 
@@ -399,6 +475,7 @@ export default function Paywall({ context, unit = "use", children }: PaywallProp
       actions={{ startTrial, refresh }}
       pending={pending}
       actionError={actionError}
+      lastRecheck={lastRecheck}
       unit={unit}
     >
       {children}

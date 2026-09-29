@@ -1,5 +1,13 @@
 import { getMockContextProps, render } from "@stripe/ui-extension-sdk/testing";
-import { Badge, Banner, Button, Link, PageModule, Select } from "@stripe/ui-extension-sdk/ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Link,
+  PageModule,
+  PropertyListItem,
+  Select,
+} from "@stripe/ui-extension-sdk/ui";
 
 import {
   getPaywallStatus,
@@ -12,7 +20,7 @@ import {
 import { PaywallExample } from "../pages/ExampleDetail/PaywallExample";
 import { resolvePaywall, type PaywallInput, type PaywallStatus } from "../types/paywall";
 import { trialEndedText, trialRemainingText, trialTermsText } from "./Paywall";
-import { PREVIEW_SCENARIOS } from "./PaywallDemo";
+import { PREVIEW_SCENARIOS, usageCountedText } from "./PaywallDemo";
 
 jest.mock("../api/backend", () => ({
   ...jest.requireActual("../api/backend"),
@@ -183,19 +191,95 @@ describe("PaywallExample", () => {
     expect(titles).toContain("Couldn't check your plan");
   });
 
-  it("previews a chosen situation without calling the backend", async () => {
+  it("shows the server's answer when a recheck changes nothing", async () => {
+    mockGetStatus.mockResolvedValue(LIMIT_REACHED);
+    mockRefresh.mockResolvedValue(LIMIT_REACHED);
+
+    const { wrapper, update } = await renderExample();
+    await flush();
+    await update();
+    expect(wrapper.text).not.toContain("Server response");
+
+    findButton(wrapper, "Recheck my plan")!.trigger("onPress");
+    await flush();
+    await update();
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(wrapper.text).toContain("Server response");
+    expect(wrapper.text).toContain("No plan found for this Stripe account.");
+  });
+
+  it("says that test mode uses are not counted", async () => {
+    const testMode = statusFor({ mode: "test" });
+    mockGetStatus.mockResolvedValue(testMode);
+    mockUseFeature.mockResolvedValue({
+      allowed: true,
+      status: testMode,
+      result: { widgetId: "widget_12345678" },
+    });
+
+    const { wrapper, update } = await renderExample();
+    // PropertyListItem takes its value as a prop, not as a child.
+    const used = wrapper
+      .findAll(PropertyListItem)
+      .find((item) => item.props.label === "Used so far");
+    expect(used!.props.value).toBe("0 widgets (not counted in test mode)");
+
+    findButton(wrapper, "Create a widget")!.trigger("onPress");
+    await flush();
+    await update();
+
+    expect(wrapper.text).toContain("Created widget_12345678");
+    expect(wrapper.text).toContain("Not counted: test mode is free");
+  });
+
+  it("previews a chosen situation without touching the trial", async () => {
     mockGetStatus.mockResolvedValue(statusFor({ mode: "test" }));
 
     const { wrapper, update } = await renderExample();
     wrapper.find(Select)!.trigger("onChange", { target: { value: "payment_past_due" } });
+    await flush();
     await update();
 
     const titles = wrapper.findAll(Banner).map((banner) => String(banner.props.title));
     expect(titles).toContain("Your plan is past due");
     expect(mockRefresh).not.toHaveBeenCalled();
     expect(mockStartTrial).not.toHaveBeenCalled();
-    // Preview mode never starts the login handshake.
-    expect(mockGetUserInfo).not.toHaveBeenCalled();
+
+    // The upgrade steps show the real Login component, not a placeholder:
+    // it asked the backend who is logged in and offers the login button.
+    expect(mockGetUserInfo).toHaveBeenCalledTimes(1);
+    const login = findButton(wrapper, "Log in or create an account");
+    expect(login).toBeDefined();
+    expect(login!.props.disabled).toBeFalsy();
+    // Both "Recheck my plan" buttons on the page are live: the status
+    // panel's and the preview's. Pressing the preview's asks the real
+    // backend and shows its answer without changing the previewed situation.
+    const recheck = wrapper
+      .findAll(Button)
+      .filter((button) => button.text.includes("Recheck my plan"));
+    expect(recheck.map((button) => Boolean(button.props.disabled))).toEqual([false, false]);
+
+    mockRefresh.mockResolvedValue(statusFor({ mode: "test" }));
+    recheck[1].trigger("onPress");
+    await flush();
+    await update();
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(wrapper.text).toContain("This is the answer for your real Stripe account.");
+    const after = wrapper.findAll(Banner).map((banner) => String(banner.props.title));
+    expect(after).toContain("Your plan is past due");
+  });
+
+  it("keeps the trial button disabled in a preview", async () => {
+    mockGetStatus.mockResolvedValue(statusFor({ mode: "test" }));
+
+    const { wrapper, update } = await renderExample();
+    wrapper.find(Select)!.trigger("onChange", { target: { value: "trial_not_started" } });
+    await flush();
+    await update();
+
+    expect(findButton(wrapper, "Start free trial")!.props.disabled).toBe(true);
   });
 });
 
@@ -206,6 +290,17 @@ describe("preview scenarios", () => {
     );
     expect(reasons).toEqual(PREVIEW_SCENARIOS.map((scenario) => scenario.id));
     expect(new Set(reasons).size).toBe(7);
+  });
+});
+
+describe("usage wording", () => {
+  it("says whether a use was counted", () => {
+    expect(usageCountedText(TRIALING, "widget")).toBe(
+      "Counted: 24 of 25 widgets used in the trial.",
+    );
+    expect(usageCountedText(statusFor({ mode: "test" }), "widget")).toContain(
+      "Not counted: test mode is free",
+    );
   });
 });
 

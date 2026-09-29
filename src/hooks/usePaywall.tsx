@@ -58,6 +58,17 @@ export type PaywallError = {
 /** Which action is in flight, so each button can show its own spinner. */
 export type PaywallAction = "start-trial" | "use-feature" | "refresh" | "reset";
 
+/**
+ * The backend's answer to the most recent "Recheck my plan", and when it
+ * arrived. A recheck that finds no plan leaves the status as it was, so
+ * without this the button would appear to do nothing.
+ */
+export type PaywallRecheck = {
+  status: PaywallStatus;
+  /** ISO timestamp (the app's clock) of when the answer arrived. */
+  checkedAt: string;
+};
+
 export type PaywallActions = {
   /** Accept the trial terms: starts the account's free trial. */
   startTrial: () => Promise<void>;
@@ -83,6 +94,8 @@ export type PaywallContextValue = PaywallActions & {
   pending: PaywallAction | null;
   /** Why the most recent action failed. Cleared when the next one starts. */
   actionError: PaywallError | null;
+  /** What the backend answered to the last recheck. Null until one succeeds. */
+  lastRecheck: PaywallRecheck | null;
 };
 
 const PaywallContext = createContext<PaywallContextValue | null>(null);
@@ -103,6 +116,7 @@ export function PaywallProvider({ context, children }: PaywallProviderProps) {
   const [status, setStatus] = useState<PaywallStatus | null>(null);
   const [pending, setPending] = useState<PaywallAction | null>(null);
   const [actionError, setActionError] = useState<PaywallError | null>(null);
+  const [lastRecheck, setLastRecheck] = useState<PaywallRecheck | null>(null);
 
   // Don't set state after the view has closed (a slow request may still
   // answer).
@@ -167,7 +181,21 @@ export function PaywallProvider({ context, children }: PaywallProviderProps) {
       recordUse: () =>
         run("use-feature", () => requestFeatureUse(context), (use) => use.status),
       refresh: async () => {
-        await run("refresh", () => refreshPaywallStatus(context), (s) => s);
+        const answer = await run(
+          "refresh",
+          () => refreshPaywallStatus(context),
+          (s) => s,
+        );
+        // Keep the answer itself, not only its effect on `status`: the
+        // views show it, so a recheck that changes nothing still says so.
+        // A failed recheck (null) clears it; the error is in actionError.
+        if (mounted.current) {
+          setLastRecheck(
+            answer
+              ? { status: answer, checkedAt: new Date().toISOString() }
+              : null,
+          );
+        }
       },
       resetTrial: async () => {
         await run("reset", () => resetTrialRequest(context), (s) => s);
@@ -177,8 +205,8 @@ export function PaywallProvider({ context, children }: PaywallProviderProps) {
   );
 
   const value = useMemo<PaywallContextValue>(
-    () => ({ state, error, status, pending, actionError, ...actions }),
-    [state, error, status, pending, actionError, actions],
+    () => ({ state, error, status, pending, actionError, lastRecheck, ...actions }),
+    [state, error, status, pending, actionError, lastRecheck, actions],
   );
 
   return <PaywallContext.Provider value={value}>{children}</PaywallContext.Provider>;
