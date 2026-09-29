@@ -22,6 +22,7 @@ import type { ComponentType } from "react";
 import { findExample, type ExampleSlug } from "../../examples/catalog";
 import { homeRoute } from "../Home/tabs";
 import { AuthenticationExample } from "./AuthenticationExample";
+import { PaywallExample } from "./PaywallExample";
 import { SettingsExample } from "./SettingsExample";
 
 export type DemoProps = {
@@ -33,6 +34,7 @@ export type DemoProps = {
 const EXAMPLE_DEMOS: Record<ExampleSlug, ComponentType<DemoProps>> = {
   authentication: AuthenticationExample,
   "app-settings": SettingsExample,
+  paywall: PaywallExample,
 };
 
 type ExampleDetailProps = {

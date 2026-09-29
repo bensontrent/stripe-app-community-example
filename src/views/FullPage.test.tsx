@@ -57,7 +57,7 @@ describe("FullPage routing", () => {
     expect(router.getHref()).toBe("/");
   });
 
-  it("links to both examples from the Examples tab", () => {
+  it("links to every example from the Examples tab", () => {
     const { wrapper } = renderAt("/");
 
     const page = wrapper.find(OverviewPage)!;
@@ -72,6 +72,9 @@ describe("FullPage routing", () => {
       }),
       expect.objectContaining({
         params: { glob: ["examples", "app-settings"], searchParams: undefined },
+      }),
+      expect.objectContaining({
+        params: { glob: ["examples", "paywall"], searchParams: undefined },
       }),
     ]);
   });

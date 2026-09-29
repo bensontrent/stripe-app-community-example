@@ -19,6 +19,7 @@
 
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { fetchStripeSignature } from '@stripe/ui-extension-sdk/utils';
+import type { PaywallDeniedBody, PaywallStatus } from '../types/paywall';
 import type { SettingsPatchBody, SettingsResponse } from '../types/settings';
 
 // Point this at your deployed backend. `stripe apps start` allows
@@ -40,6 +41,8 @@ export class BackendConnectionError extends Error {
     readonly hint: string,
     /** HTTP status when the backend answered with an error, else undefined. */
     readonly status?: number,
+    /** The raw response body of that error answer, for callers that read it. */
+    readonly body?: string,
   ) {
     super(message);
     this.name = 'BackendConnectionError';
@@ -144,6 +147,7 @@ async function signedFetch<T>(
       `Backend responded ${response.status} ${response.statusText}: ${detail}`,
       statusHint(response.status),
       response.status,
+      detail,
     );
   }
 
@@ -301,6 +305,89 @@ export function patchSettings(
     context,
     body,
   );
+}
+
+// ---------------------------------------------------------------------------
+//  Paywall (see src/hooks/usePaywall.tsx and src/types/paywall.ts; the
+//  backend half is src/lib/paywall.ts + /api/stripe-app/paywall/*)
+// ---------------------------------------------------------------------------
+
+/**
+ * May this Stripe account use the paid features, and what should the app
+ * show if not? No login needed: the trial belongs to the signed account id.
+ */
+export function getPaywallStatus(
+  context: ExtensionContextValue,
+): Promise<PaywallStatus> {
+  return signedFetch<PaywallStatus>('GET', '/api/stripe-app/paywall', context);
+}
+
+/** Start the account's free trial (idempotent). Answers with the new status. */
+export function startTrial(
+  context: ExtensionContextValue,
+): Promise<PaywallStatus> {
+  return signedFetch<PaywallStatus>('POST', '/api/stripe-app/paywall/trial', context);
+}
+
+/** Development only: forget the trial so the demo can be run again. */
+export function resetTrial(
+  context: ExtensionContextValue,
+): Promise<PaywallStatus> {
+  return signedFetch<PaywallStatus>('DELETE', '/api/stripe-app/paywall/trial', context);
+}
+
+/**
+ * "Recheck my plan": the backend re-reads the account's subscriptions from
+ * Stripe, so a plan bought a moment ago counts straight away.
+ */
+export function refreshPaywallStatus(
+  context: ExtensionContextValue,
+): Promise<PaywallStatus> {
+  return signedFetch<PaywallStatus>('POST', '/api/stripe-app/paywall/refresh', context);
+}
+
+export type FeatureUseResult =
+  | { allowed: true; status: PaywallStatus; result: { widgetId: string } }
+  | { allowed: false; status: PaywallStatus };
+
+/**
+ * Use the paid feature once. The backend is the gate: it answers 200 with
+ * the result, or 402 Payment Required with the status that explains why
+ * not. A 402 is an expected answer, not an error, so it is returned rather
+ * than thrown — the caller renders `status.view` either way.
+ */
+export async function requestFeatureUse(
+  context: ExtensionContextValue,
+): Promise<FeatureUseResult> {
+  try {
+    const response = await signedFetch<{
+      status: PaywallStatus;
+      result: { widgetId: string };
+    }>('POST', '/api/stripe-app/paywall/usage', context);
+    return { allowed: true, ...response };
+  } catch (error) {
+    if (error instanceof BackendConnectionError && error.status === 402 && error.body) {
+      const denied = JSON.parse(error.body) as PaywallDeniedBody;
+      return { allowed: false, status: denied.status };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Browser URL of the backend's public price list. No login: safe to show
+ * to anyone, at any point — before the trial, during it, after it.
+ */
+export function plansPageUrl(): string {
+  return `${BACKEND_BASE}/plans`;
+}
+
+/**
+ * Browser URL of the backend's billing page, where a logged-in user
+ * subscribes and manages their plan.
+ */
+export function billingPageUrl(): string {
+  return `${BACKEND_BASE}/billing`;
 }
 
 // Bearer-token auth from a Stripe App: store a user-provided key with

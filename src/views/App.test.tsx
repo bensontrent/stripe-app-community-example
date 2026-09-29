@@ -49,6 +49,7 @@ describe("App (drawer)", () => {
     );
     expect(items.some((item) => item.props.id === "authentication")).toBe(true);
     expect(items.some((item) => item.props.id === "app-settings")).toBe(true);
+    expect(items.some((item) => item.props.id === "paywall")).toBe(true);
   });
 
   it("navigates to an example's URL when its list item is pressed", async () => {

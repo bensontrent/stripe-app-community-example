@@ -52,7 +52,7 @@ export function ExamplesTab() {
         <>
           <PageModule title="Before you start">
             <Box css={{ color: "secondary", font: "caption" }}>
-              Both examples talk to the companion backend: run npm run dev in
+              The examples talk to the companion backend: run npm run dev in
               stripe-app-nextjs-backend (port 3006) first. Requests are signed
               with fetchStripeSignature(); point BACKEND_BASE in
               src/api/backend.ts at your deployment and list it in the
@@ -71,7 +71,7 @@ export function ExamplesTab() {
               <PropertyListItem label="Examples" value="src/examples/catalog.ts" />
               <PropertyListItem
                 label="Demo sections"
-                value="src/components/BackendDemo.tsx, SettingsDemo.tsx"
+                value="src/components/BackendDemo.tsx, SettingsDemo.tsx, PaywallDemo.tsx"
               />
             </PropertyList>
           </PageModule>

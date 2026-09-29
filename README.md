@@ -21,7 +21,7 @@ by route *name*, never by path.
 | Route | Pattern | What it shows |
 | --- | --- | --- |
 | `home` | `/:tabId?` | Tabs **Examples** and **Routing**. The selected tab is the optional URL segment (`/` is the default tab). Unknown values redirect home. |
-| `example` | `/examples/:slug` | One of the two examples in [`src/examples/catalog.ts`](src/examples/catalog.ts): `authentication` (backend auth) or `app-settings`. |
+| `example` | `/examples/:slug` | One of the examples in [`src/examples/catalog.ts`](src/examples/catalog.ts): `authentication` (backend auth), `app-settings` or `paywall`. |
 | `customer` | `/customers/:customerId` | List-to-detail flow over mock data with a `DataTable` of invoices. Unknown ids hand over to the native Dashboard page with a route descriptor. |
 | `invoice` | `/customers/:customerId/invoices/:invoiceId` | Two nested parameters, breadcrumbs back up the hierarchy, previous/next links. |
 | `legacyDemo` | `/demo/:slug` | A retired path kept alive with `<Redirect>`. |
@@ -176,6 +176,8 @@ stripe-app/
 │   ├── components/
 │   │   ├── BackendDemo.tsx      # The three auth demo sections
 │   │   ├── SettingsDemo.tsx     # The app settings demo sections
+│   │   ├── Paywall.tsx          # <Paywall>: the paid feature, or the trial / upgrade view
+│   │   ├── PaywallDemo.tsx      # The paywall demo sections (/examples/paywall)
 │   │   ├── Login.tsx            # Dashboard-user login state machine
 │   │   └── Form.tsx
 │   ├── api/backend.ts           # Signed-fetch client + example calls
